@@ -8,4 +8,6 @@ __pycache__
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# Don't commit secrets
 secrets.json
