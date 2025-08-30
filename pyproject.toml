@@ -7,8 +7,3 @@ requires-python = ">=3.13"
 dependencies = [
     "aws-cdk-aws-lambda-python-alpha>=2.212.0a0",
 ]
-
-[tool.uv.workspace]
-members = [
-    "lambda",
-]

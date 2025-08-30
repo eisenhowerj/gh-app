@@ -21,14 +21,22 @@ class GhAppStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Secrets Manager
+        # =============================================================================
+        # SECRETS MANAGEMENT
+        # =============================================================================
+
+        # Create Secrets Manager secret to store GitHub App credentials
         secrets = secretsmanager.Secret(
             self,
             "GitHubAppSecret",
             description="GitHub App secrets in toml format",
         )
 
-        # Lambda function
+        # =============================================================================
+        # LAMBDA FUNCTION
+        # =============================================================================
+
+        # Create Python Lambda function to handle GitHub webhook events
         lambda_fn = PythonFunction(
             self,
             "GhAppLambda",
@@ -51,9 +59,14 @@ class GhAppStack(Stack):
             timeout=Duration.minutes(1),
         )
 
+        # Grant Lambda function read access to the secrets
         secrets.grant_read(lambda_fn)
 
-        # API Gateway
+        # =============================================================================
+        # API GATEWAY
+        # =============================================================================
+
+        # Create API Gateway REST API with Lambda proxy integration
         api = apigw.LambdaRestApi(
             self,
             "GhAppApi",
@@ -62,14 +75,18 @@ class GhAppStack(Stack):
             disable_execute_api_endpoint=True,
         )
 
-        # Route53 hosted zone (assumes hosted zone exists)
+        # =============================================================================
+        # DNS AND CERTIFICATE MANAGEMENT
+        # =============================================================================
+
+        # Lookup existing Route53 hosted zone
         zone = route53.HostedZone.from_lookup(
             self,
             "GhAppHostedZone",
             domain_name=hosted_zone,
         )
 
-        # TLS Certificate for the custom domain
+        # Create TLS certificate for the custom domain
         certificate = acm.Certificate(
             self,
             "GhAppCertificate",
@@ -77,16 +94,18 @@ class GhAppStack(Stack):
             validation=acm.CertificateValidation.from_dns(zone),
         )
 
-        # Custom domain for API Gateway
+        # Create custom domain name for API Gateway
         domain = apigw.DomainName(
             self,
             "GhAppDomain",
             domain_name=f"scmaestro.{hosted_zone}",
             certificate=certificate,
         )
+
+        # Map the custom domain to the API Gateway
         domain.add_base_path_mapping(api)
 
-        # Route53 record pointing to the custom domain
+        # Create Route53 A record pointing to the custom domain
         route53.ARecord(
             self,
             "GhAppApiRecord",
@@ -95,8 +114,13 @@ class GhAppStack(Stack):
             zone=zone,
         )
 
-        # WAF setup, cut down on the door knockers
-        # curl https://api.github.com/meta -s  | jq '.hooks' to get the list of IPs
+        # =============================================================================
+        # WEB APPLICATION FIREWALL (WAF)
+        # =============================================================================
+        # Setup WAF to restrict access to GitHub webhook IPs only
+        # IP ranges from: curl https://api.github.com/meta -s | jq '.hooks'
+
+        # Create IPv4 IP set with GitHub webhook IP ranges
         ipv4_ip_set = wafv2.CfnIPSet(
             self,
             "IPv4IPSet",
@@ -105,13 +129,13 @@ class GhAppStack(Stack):
                 "185.199.108.0/22",
                 "140.82.112.0/20",
                 "143.55.64.0/20",
-                "96.241.177.63/32",  #### REMOVE
             ],
             ip_address_version="IPV4",
             scope="REGIONAL",
             name="AllowedIPv4IPs",
         )
 
+        # Create IPv6 IP set with GitHub webhook IP ranges
         ipv6_ip_set = wafv2.CfnIPSet(
             self,
             "IPv6IPSet",
@@ -120,6 +144,8 @@ class GhAppStack(Stack):
             scope="REGIONAL",
             name="AllowedIPv6IPs",
         )
+
+        # Create Web ACL with rules to allow only GitHub IPs
         web_acl = wafv2.CfnWebACL(
             self,
             "WebACL",
@@ -131,6 +157,7 @@ class GhAppStack(Stack):
                 sampled_requests_enabled=True,
             ),
             rules=[
+                # Allow rule for IPv4 GitHub IPs
                 wafv2.CfnWebACL.RuleProperty(
                     name="IPv4AllowRule",
                     priority=1,
@@ -146,6 +173,7 @@ class GhAppStack(Stack):
                         )
                     ),
                 ),
+                # Allow rule for IPv6 GitHub IPs
                 wafv2.CfnWebACL.RuleProperty(
                     name="IPv6AllowRule",
                     priority=2,
@@ -164,7 +192,7 @@ class GhAppStack(Stack):
             ],
         )
 
-        # Associate WAF with API Gateway
+        # Associate the Web ACL with the API Gateway stage
         wafv2.CfnWebACLAssociation(
             self,
             "WebACLAssociation",
@@ -172,37 +200,45 @@ class GhAppStack(Stack):
             web_acl_arn=web_acl.attr_arn,
         )
 
-        # Create CloudWatch Dashboard to view Lambda Function Metrics
+        # =============================================================================
+        # CLOUDWATCH MONITORING AND DASHBOARD
+        # =============================================================================
+
+        # Create CloudWatch Dashboard for monitoring Lambda function
         cw_dashboard = cloudwatch.Dashboard(
             self,
             "Lambda Dashboard",
             dashboard_name="GhecWebhookProcessor",
         )
-        # CloudWatch Dashboard Title
+
+        # Dashboard title widget
         title_widget = cloudwatch.TextWidget(
             markdown=f"# Dashboard: {lambda_fn.function_name}",
             height=1,
             width=24,
         )
 
-        # Create Widgets for CloudWatch Dashboard based on Lambda Function's CloudWatch Metrics
+        # Lambda invocations metrics widget
         invocations_widget = cloudwatch.GraphWidget(
             title="Invocations", left=[lambda_fn.metric_invocations()], width=12
         )
 
+        # Lambda errors metrics widget
         errors_widget = cloudwatch.GraphWidget(
             title="Errors", left=[lambda_fn.metric_errors()], width=12
         )
 
+        # Lambda duration metrics widget
         duration_widget = cloudwatch.GraphWidget(
             title="Duration", left=[lambda_fn.metric_duration()], width=12
         )
 
+        # Lambda throttles metrics widget
         throttles_widget = cloudwatch.GraphWidget(
             title="Throttles", left=[lambda_fn.metric_throttles()], width=12
         )
 
-        # Create Widget to show last 20 Log Entries
+        # Recent log entries widget
         log_widget = cloudwatch.LogQueryWidget(
             log_group_names=[lambda_fn.log_group.log_group_name],
             query_lines=[
@@ -213,7 +249,7 @@ class GhAppStack(Stack):
             width=24,
         )
 
-        # Add Widgets to CloudWatch Dashboard
+        # Add all widgets to the dashboard
         cw_dashboard.add_widgets(
             title_widget,
             invocations_widget,
@@ -223,7 +259,11 @@ class GhAppStack(Stack):
             log_widget,
         )
 
-        # CfnOutput a bootstrapping command for updating the secrets found in secrets.toml
+        # =============================================================================
+        # OUTPUTS
+        # =============================================================================
+
+        # Output command for updating secrets in Secrets Manager
         CfnOutput(
             self,
             "UpdateSecretsCommand",
