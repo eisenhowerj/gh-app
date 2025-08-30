@@ -41,16 +41,9 @@ def webhooks():
     gh_event = app.current_event["headers"].get("X-GitHub-Event", "")
     logger.info(f"GitHub event received: {gh_event}")
 
-    # Map supported GitHub events to their handlers (alphabetized)
-    events = {
-        "ping": actions.handle_ping,
-        "privatized": actions.handle_privatized,
-        "repository_ruleset": actions.handle_repository_ruleset,
-    }
-
-    # Check if event is supported and call handler
-    if gh_event in events:
-        return events[gh_event](app.current_event["body"])
+    # Use the event handler registry from actions.py
+    if gh_event in actions.EVENT_HANDLERS:
+        return actions.EVENT_HANDLERS[gh_event](app.current_event["body"], logger=logger)
     else:
         return {"status": "unsupported event"}
 
