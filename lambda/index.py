@@ -1,3 +1,4 @@
+import json
 import os
 
 from aws_lambda_powertools import Logger
@@ -7,7 +8,7 @@ from aws_lambda_powertools.utilities import parameters
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
 import actions
-import utilities
+import utilities as u
 
 SECRETS = os.environ.get("SECRETS")
 
@@ -29,7 +30,7 @@ def webhooks():
         return {"status": "server error"}, 500
 
     # Verify GitHub webhook signature
-    if not utilities.verify_signature(
+    if not u.verify_signature(
         payload_body=app.current_event["body"],
         secret_token=secrets["GITHUB_WEBHOOK_SECRET"],
         signature_header=app.current_event["headers"].get("X-Hub-Signature-256", ""),
@@ -37,13 +38,18 @@ def webhooks():
         logger.error("Invalid signature")
         return {"status": "invalid signature"}, 403
 
-    # Get GitHub event type from headers
+    # Get GitHub event type from headers and action from body
     gh_event = app.current_event["headers"].get("X-GitHub-Event", "")
-    logger.info(f"GitHub event received: {gh_event}")
+    json_body = json.loads(app.current_event["body"])
+    gh_action = json_body.get("action", "")
+    logger.info(f"GitHub event received: {gh_event}, action: {gh_action}")
+    event_action = f"{gh_event}.{gh_action}"
 
     # Use the event handler registry from actions.py
-    if gh_event in actions.EVENT_HANDLERS:
-        return actions.EVENT_HANDLERS[gh_event](app.current_event["body"], logger=logger)
+    if event_action in actions.EVENT_HANDLERS:
+        return actions.EVENT_HANDLERS[event_action](
+            json_body, logger=logger
+        )
     else:
         return {"status": "unsupported event"}
 

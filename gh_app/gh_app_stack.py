@@ -207,15 +207,8 @@ class GhAppStack(Stack):
         # Create CloudWatch Dashboard for monitoring Lambda function
         cw_dashboard = cloudwatch.Dashboard(
             self,
-            "Lambda Dashboard",
-            dashboard_name="GhecWebhookProcessor",
-        )
-
-        # Dashboard title widget
-        title_widget = cloudwatch.TextWidget(
-            markdown=f"# Dashboard: {lambda_fn.function_name}",
-            height=1,
-            width=24,
+            "CloudWatchDashboard",
+            dashboard_name="SCMaestro",
         )
 
         # Lambda invocations metrics widget
@@ -251,10 +244,9 @@ class GhAppStack(Stack):
 
         # Add all widgets to the dashboard
         cw_dashboard.add_widgets(
-            title_widget,
-            invocations_widget,
-            errors_widget,
             duration_widget,
+            errors_widget,
+            invocations_widget,
             throttles_widget,
             log_widget,
         )
